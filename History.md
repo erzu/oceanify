@@ -1,3 +1,15 @@
+5.1.2 / 2018-01-24
+==================
+
+  * Fix: cyclic dependencies is hard.
+
+
+5.1.1 / 2018-01-23
+==================
+
+  * Fix: cyclic dependencies won't be an issue if one of the modules is executed already. That is, the require itself is deferred.
+
+
 5.1.0 / 2018-01-16
 ==================
 

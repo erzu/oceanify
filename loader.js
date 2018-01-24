@@ -213,9 +213,20 @@
     this.id = id
     this.dependencies = opts.dependencies
     this.dependents = []
+    this.cycles = []
     this.factory = opts.factory
     this.status = MODULE_INIT
     registry[id] = this
+  }
+
+  Module.prototype.depends = function(dep) {
+    var mod = this
+    if (dep.dependents.indexOf(mod) >= 0) return true
+    for (var i = 0; i < dep.dependents.length; i++) {
+      if (dep.cycles.indexOf(dep.dependents[i]) >= 0) continue
+      if (mod.depends(dep.dependents[i])) return true
+    }
+    return false
   }
 
   /**
@@ -252,14 +263,6 @@
     }
   }
 
-  Module.prototype.isCyclic = function(dep) {
-    var dependents = this.dependents
-    for (var i = 0; i < dependents.length; i++) {
-      if (dependents[i] == dep) return true
-    }
-    return false
-  }
-
   Module.prototype.resolve = function() {
     var mod = this
     mod.status = MODULE_RESOLVING
@@ -269,15 +272,14 @@
     })
 
     deps.forEach(function(dep) {
+      if (dep.depends(mod)) mod.cycles.push(dep)
       dep.dependents.push(mod)
       dep.fetch()
     })
 
-    /*
-     * No more dependencies to resolve. Let's get the back track started.
-     */
+    // No more dependencies to resolve. Let's get the back track started.
     var resolved = deps.length === 0 || !deps.some(function(dep) {
-      return dep.status < MODULE_RESOLVED
+      return mod.cycles.indexOf(dep) < 0 && dep.status < MODULE_RESOLVED
     })
 
     if (resolved) mod.resolved()
@@ -293,14 +295,15 @@
 
     for (var i = 0, len = dependents.length; i < len; i++) {
       var parent = dependents[i]
+      var siblings = parent.dependencies
       var allset = true
 
-      for (var j = 0; j < parent.dependencies.length; j++) {
-        var depId = Module.resolve(parent.dependencies[j], parent.id)
-        var dep = registry[depId]
+      for (var j = 0; j < siblings.length; j++) {
+        var siblingId = Module.resolve(siblings[j], parent.id)
+        var sibling = registry[siblingId]
 
-        if (parent.isCyclic(dep)) continue
-        if (dep.status < MODULE_RESOLVED) {
+        if (parent.cycles.length > 0 && parent.cycles.indexOf(sibling) >= 0) continue
+        if (sibling.status < MODULE_RESOLVED) {
           allset = false
           break
         }
@@ -309,9 +312,8 @@
       if (allset && parent.status < MODULE_RESOLVED) parent.resolved()
     }
 
-    if (!dependents.length) {
-      mod.execute()
-    }
+    // We've reached the root module. Start the execution.
+    if (!dependents.length) mod.execute()
   }
 
   Module.prototype.execute = function() {
@@ -323,8 +325,6 @@
     function require(id) {
       id = Module.resolve(id, mod.id)
       var dep = registry[id]
-
-      if (mod.isCyclic(dep)) return (dep.exports = {})
 
       if (dep.status < MODULE_RESOLVED) {
         throw new Error('Module ' + id + ' should be resolved by now')
@@ -344,9 +344,7 @@
       ? factory.call(null, require, mod.exports, mod)
       : factory
 
-    if (exports) {
-      mod.exports = exports
-    }
+    if (exports) mod.exports = exports
   }
 
 
